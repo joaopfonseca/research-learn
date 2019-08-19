@@ -1,0 +1,41 @@
+package:
+  name: research-learn
+  version: "0.1.0"
+
+source:
+  url: "https://files.pythonhosted.org/packages/00/ac/d0e34b911be803a2aa80f3c9d2de2314f68703bda38b4f4f4b7f9cc83265/research-learn-0.1.0.tar.gz"
+  sha256: "b79be1c31753c2e436fc9226c784ccdbf08afc0b362ec6d12fc05e0888062958"
+
+build:
+  number: 0
+  noarch: python
+
+requirements:
+  host:
+    - numpy >=1.1
+    - pip
+    - python
+    - scikit-learn >=0.21
+    - scipy >=0.17
+    - matplotlib >=3.0
+
+  run:
+    - numpy >=1.1
+    - python
+    - scikit-learn >=0.21
+    - scipy >=0.17
+    - pandas >- 0.23.0
+    - matplotlib >=3.0
+
+test:
+  requires:
+    - coverage
+    - pytest
+    - pytest-cov
+  imports:
+    - rlearn
+
+about:
+  home: "https://github.com/AlgoWit/research-learn"
+  license: "MIT"
+  license_file: ""
