@@ -17,15 +17,18 @@ requirements:
     - python
     - scikit-learn >=0.21
     - scipy >=0.17
+    - pandas >=0.23.0
     - matplotlib >=3.0
+    - tqdm >=4.30.0
 
   run:
     - numpy >=1.1
     - python
     - scikit-learn >=0.21
     - scipy >=0.17
-    - pandas >- 0.23.0
+    - pandas >=0.23.0
     - matplotlib >=3.0
+    - tqdm >=4.30.0
 
 test:
   requires:
