@@ -3,8 +3,8 @@ package:
   version: "0.1.0"
 
 source:
-  url: "https://files.pythonhosted.org/packages/00/ac/d0e34b911be803a2aa80f3c9d2de2314f68703bda38b4f4f4b7f9cc83265/research-learn-0.1.0.tar.gz"
-  sha256: "b79be1c31753c2e436fc9226c784ccdbf08afc0b362ec6d12fc05e0888062958"
+  url: "https://files.pythonhosted.org/packages/5a/e4/320a46a623bc204973b5692714d2723e6eef15c7d1406e560a2685d9febd/research-learn-0.1.0.tar.gz"
+  sha256: "2aa0755d4e139df48f5a1670a661405c25754944f4d1ecea6f127ac12810d2de"
 
 build:
   number: 0
