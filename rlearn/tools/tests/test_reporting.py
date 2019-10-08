@@ -27,14 +27,13 @@ from rlearn.model_selection import ModelSearchCV
 
 EXPERIMENT = ImbalancedExperiment(
     'test_experiment',
-    DATASETS,
     OVERSAMPLERS,
     CLASSIFIERS,
     scoring=None,
     n_splits=3,
     n_runs=3,
     random_state=0,
-).run()
+).fit(DATASETS)
 
 
 @pytest.mark.parametrize(

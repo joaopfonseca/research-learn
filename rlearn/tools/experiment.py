@@ -8,11 +8,11 @@ machine learning experiments.
 
 from os.path import join
 from pickle import dump
-from itertools import chain
 
 from tqdm import tqdm
 import numpy as np
 import pandas as pd
+from sklearn.base import BaseEstimator
 from sklearn.model_selection import StratifiedKFold
 
 from ..utils import check_datasets, check_oversamplers_classifiers
@@ -21,45 +21,76 @@ from ..model_selection import ModelSearchCV
 GROUP_KEYS = ['Dataset', 'Oversampler', 'Classifier', 'params']
 
 
-def combine_experiments(name, *experiments):
+def combine_experiments(
+    experiments,
+    name='combined_experiment',
+    exclude_oversamplers=None,
+    exclude_classifiers=None,
+):
     """Combines the results of multiple experiments into a single one."""
 
-    # Check experiments compatibility
-    for attr_name in (
-        'datasets_names_',
-        'classifiers_names_',
-        'scoring_cols_',
-        'n_splits',
-        'n_runs',
-        'random_state',
-    ):
-        attributes = []
+    # Check compatibility
+    attributes = ['n_splits', 'n_runs', 'random_state']
+    for attr_name in attributes:
+        values = []
         for experiment in experiments:
-            if attr_name != 'scoring_cols_':
-                attributes.append(getattr(experiment, attr_name))
-            else:
-                attributes.append(tuple(getattr(experiment, attr_name)))
-        if len(set(attributes)) > 1:
+            values.append(getattr(experiment, attr_name))
+        values = set(values)
+        if len(values) > 1:
             raise ValueError(
-                f'Experiments not compatible. Attribute `{attr_name}` differs.'
+                f'Experiments can not be combined. Parameter `{attr_name}` '
+                f'should be unique across different experiments.'
             )
 
+    # Extract results
+    try:
+        results = pd.concat(
+            [experiment.results_ for experiment in experiments], axis=1, sort=True
+        )
+        if len(set([scoring for scoring, _ in results.columns])) == 1:
+            values = np.apply_along_axis(
+                arr=results.values, func1d=lambda row: row[~np.isnan(row)][0:2], axis=1
+            )
+            results = pd.DataFrame(
+                values, index=results.index, columns=results.columns[0:2]
+            )
+        if results.isna().any().any():
+            raise ValueError(
+                'Experiment with different oversamplers, classifiers or datasets '
+                'should have the same scoring and vice-versa.'
+            )
+    except AttributeError:
+        raise AttributeError('All experiments should be run before combined.')
+
+    # Generate experiment parameters
+    oversamplers, classifiers, scoring = [], [], set()
+    for experiment in experiments:
+        scoring = scoring.union(experiment.scoring_cols_)
+        for ovs in experiment.oversamplers or not oversamplers:
+            ovs_names = [name for name, *_ in oversamplers]
+            if ovs[0] not in ovs_names:
+                oversamplers.append(ovs)
+        for clf in experiment.classifiers or not classifiers:
+            clf_names = [name for name, *_ in classifiers]
+            if clf[0] not in clf_names:
+                classifiers.append(clf)
+    scoring = sorted(scoring)
+
     # Combine results
-    oversamplers = list(chain(*[experiment.oversamplers for experiment in experiments]))
     combined_experiment = ImbalancedExperiment(
         name,
-        experiments[0].datasets,
         oversamplers,
-        experiments[0].classifiers,
-        experiments[0].scoring,
+        classifiers,
+        scoring,
         experiments[0].n_splits,
         experiments[0].n_runs,
         experiments[0].random_state,
     )
-    combined_experiment._initialize(-1, 0)
-    combined_experiment.results_ = pd.concat(
-        [experiment.results_ for experiment in experiments]
+    combined_experiment.datasets_names_ = tuple(
+        np.unique(results.index.get_level_values('Dataset'))
     )
+    combined_experiment._initialize()
+    combined_experiment.results_ = results
 
     # Create attributes
     combined_experiment._calculate_optimal_results()._calculate_wide_optimal_results()
@@ -67,47 +98,38 @@ def combine_experiments(name, *experiments):
     return combined_experiment
 
 
-class ImbalancedExperiment:
+class ImbalancedExperiment(BaseEstimator):
     """Define a classification experiment on multiple imbalanced datasets."""
 
     def __init__(
         self,
         name,
-        datasets,
         oversamplers,
         classifiers,
-        scoring,
-        n_splits,
-        n_runs,
-        random_state,
+        scoring=None,
+        n_splits=5,
+        n_runs=2,
+        random_state=None,
+        n_jobs=-1,
+        verbose=0,
     ):
         self.name = name
-        self.datasets = datasets
         self.oversamplers = oversamplers
         self.classifiers = classifiers
         self.scoring = scoring
         self.n_splits = n_splits
         self.n_runs = n_runs
         self.random_state = random_state
+        self.n_jobs = n_jobs
+        self.verbose = verbose
 
-    def _initialize(self, n_jobs, verbose):
+    def _initialize(self):
         """Initialize experiment's parameters."""
 
         # Check oversamplers and classifiers
         self.estimators_, self.param_grids_ = check_oversamplers_classifiers(
             self.oversamplers, self.classifiers, self.random_state, self.n_runs
         )
-
-        # Scoring columns
-        if isinstance(self.scoring, list):
-            self.scoring_cols_ = ['mean_test_%s' % scorer for scorer in self.scoring]
-        else:
-            self.scoring_cols_ = ['mean_test_score']
-
-        # Datasets, oversamplers and classifiers
-        self.datasets_names_, _ = zip(*self.datasets)
-        self.oversamplers_names_, *_ = zip(*self.oversamplers)
-        self.classifiers_names_, *_ = zip(*self.classifiers)
 
         # Create model search cv
         self.mscv_ = ModelSearchCV(
@@ -119,15 +141,28 @@ class ImbalancedExperiment:
                 n_splits=self.n_splits, shuffle=True, random_state=self.random_state
             ),
             return_train_score=False,
-            n_jobs=n_jobs,
-            verbose=verbose,
+            n_jobs=self.n_jobs,
+            verbose=self.verbose,
         )
+
+        # Extract oversamplers and classifiers names
+        self.oversamplers_names_, *_ = zip(*self.oversamplers)
+        self.classifiers_names_, *_ = zip(*self.classifiers)
+
+        # Extract scoring columns
+        if isinstance(self.scoring, list):
+            self.scoring_cols_ = self.scoring
+        elif isinstance(self.scoring, str):
+            self.scoring_cols_ = [self.scoring]
+        else:
+            self.scoring_cols_ = (
+                ['accuracy']
+                if self.mscv_.estimator._estimator_type == 'classifier'
+                else ['r2']
+            )
 
     def _calculate_results(self, results):
         """"Calculate aggregated results across runs."""
-        scoring_mapping = {
-            scorer_name: [np.mean, np.std] for scorer_name in self.scoring_cols_
-        }
         results['params'] = results['params'].apply(
             lambda param_grid: str(
                 {
@@ -137,6 +172,9 @@ class ImbalancedExperiment:
                 }
             )
         )
+        scoring_mapping = {
+            scorer_name: [np.mean, np.std] for scorer_name in self.scoring_cols_
+        }
         self.results_ = results.groupby(GROUP_KEYS).agg(scoring_mapping)
         return self
 
@@ -154,7 +192,7 @@ class ImbalancedExperiment:
 
         # Calculate maximum score per gorup key
         agg_measures = {score: max for score in self.scoring_cols_}
-        optimal = optimal.groupby(GROUP_KEYS[:-1]).agg(agg_measures).reset_index()
+        optimal = optimal.groupby(GROUP_KEYS[:-1], as_index=False).agg(agg_measures)
 
         # Format as long table
         optimal = optimal.melt(
@@ -192,20 +230,6 @@ class ImbalancedExperiment:
         wide_optimal.columns = wide_optimal.columns.tolist()
         wide_optimal.reset_index(inplace=True)
 
-        # Transform metric column
-        if isinstance(self.scoring, list):
-            wide_optimal['Metric'] = wide_optimal['Metric'].replace(
-                'mean_test_', '', regex=True
-            )
-        elif isinstance(self.scoring, str):
-            wide_optimal['Metric'] = self.scoring
-        else:
-            wide_optimal['Metric'] = (
-                'accuracy'
-                if self.mscv_.estimator._estimator_type == 'classifier'
-                else 'r2'
-            )
-
         # Cast column
         wide_optimal['Metric'] = pd.Categorical(
             wide_optimal['Metric'],
@@ -216,25 +240,29 @@ class ImbalancedExperiment:
 
         return self
 
-    def run(self, n_jobs=-1, verbose=0):
-        """Run experiment."""
+    def fit(self, datasets):
+        """Fit experiment."""
 
-        self._initialize(n_jobs, verbose)
+        self.datasets_names_, _ = zip(*datasets)
+        self._initialize()
 
         # Define empty results
         results = []
 
         # Populate results table
-        datasets = check_datasets(self.datasets)
+        datasets = check_datasets(datasets)
         for dataset_name, (X, y) in tqdm(datasets, desc='Datasets'):
 
             # Fit model search
             self.mscv_.fit(X, y)
 
             # Get results
-            result = pd.DataFrame(self.mscv_.cv_results_).loc[
-                :, ['models', 'params'] + self.scoring_cols_
-            ]
+            result = pd.DataFrame(self.mscv_.cv_results_)
+            scoring_cols = [col for col in result.columns if 'mean_test' in col]
+            result.rename(
+                columns=dict(zip(scoring_cols, self.scoring_cols_)), inplace=True
+            )
+            result = result.loc[:, ['models', 'params'] + self.scoring_cols_]
 
             # Append dataset name column
             result = result.assign(Dataset=dataset_name)
