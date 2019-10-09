@@ -12,7 +12,7 @@ from pickle import dump
 from tqdm import tqdm
 import numpy as np
 import pandas as pd
-from sklearn.base import BaseEstimator
+from sklearn.base import BaseEstimator, clone
 from sklearn.model_selection import StratifiedKFold
 
 from ..utils import check_datasets, check_oversamplers_classifiers
@@ -21,12 +21,102 @@ from ..model_selection import ModelSearchCV
 GROUP_KEYS = ['Dataset', 'Oversampler', 'Classifier', 'params']
 
 
-def combine_experiments(
-    experiments,
-    name='combined_experiment',
-    exclude_oversamplers=None,
-    exclude_classifiers=None,
+def filter_experiment(
+    experiment,
+    oversamplers_names=None,
+    classifiers_names=None,
+    datasets_names=None,
+    scoring_cols=None,
 ):
+    """Filter experimental results and return an experiment object."""
+
+    # Check input parameters
+    error_msg = 'Parameter `{}` should be `None` or a subset '
+    'of the experiments corresponding attribute.'
+    if oversamplers_names is not None:
+        try:
+            if not set(oversamplers_names).issubset(experiment.oversamplers_names_):
+                raise ValueError(error_msg.format(oversamplers_names))
+        except TypeError:
+            raise ValueError(error_msg.format(oversamplers_names))
+    if classifiers_names is not None:
+        try:
+            if not set(classifiers_names).issubset(experiment.classifiers_names_):
+                raise ValueError(error_msg.format(classifiers_names))
+        except TypeError:
+            raise ValueError(error_msg.format(classifiers_names))
+    if datasets_names is not None:
+        try:
+            if not set(datasets_names).issubset(experiment.datasets_names_):
+                raise ValueError(error_msg.format(datasets_names))
+        except TypeError:
+            raise ValueError(error_msg.format(datasets_names))
+    if scoring_cols is not None:
+        try:
+            if not set(scoring_cols).issubset(experiment.scoring_cols_):
+                raise ValueError(error_msg.format(scoring_cols))
+        except TypeError:
+            raise ValueError(error_msg.format(scoring_cols))
+
+    # Clone experiment
+    filtered_experiment = clone(experiment)
+
+    # Extract results
+    results = experiment.results_.reset_index()
+
+    # Oversamplers
+    if oversamplers_names is not None:
+        mask_ovr = results.Oversampler.isin(oversamplers_names)
+        filtered_experiment.oversamplers = [
+            ovs
+            for ovs in filtered_experiment.oversamplers
+            if ovs[0] in oversamplers_names
+        ]
+        filtered_experiment.oversamplers_names_ = tuple(oversamplers_names)
+    else:
+        mask_ovr = True
+        filtered_experiment.oversamplers_names_ = experiment.oversamplers_names_
+
+    # Classifiers
+    if classifiers_names is not None:
+        mask_clf = results.Classifier.isin(classifiers_names)
+        filtered_experiment.classifiers = [
+            clf
+            for clf in filtered_experiment.classifiers
+            if clf[0] in classifiers_names
+        ]
+        filtered_experiment.classifiers_names_ = tuple(classifiers_names)
+    else:
+        mask_clf = True
+        filtered_experiment.classifiers_names_ = experiment.classifiers_names_
+
+    # Datasets
+    if datasets_names is not None:
+        mask_ds = results.Classifier.isin(datasets_names)
+        filtered_experiment.datasets_names_ = tuple(datasets_names)
+    else:
+        mask_ds = True
+        filtered_experiment.datasets_names_ = experiment.datasets_names_
+
+    # Define boolean mask
+    mask = mask_ovr & mask_clf & mask_ds
+    if mask is True:
+        mask = np.repeat(True, len(results)).reshape(-1, 1)
+    else:
+        mask = mask.values.reshape(-1, 1)
+
+    # Set scoring columns and results
+    filtered_experiment.scoring_cols_ = (
+        experiment.scoring_cols_ if scoring_cols is None else scoring_cols
+    )
+    filtered_experiment.results_ = experiment.results_[mask][
+        filtered_experiment.scoring_cols_
+    ]
+
+    return filtered_experiment
+
+
+def combine_experiments(experiments, name='combined_experiment'):
     """Combines the results of multiple experiments into a single one."""
 
     # Check compatibility

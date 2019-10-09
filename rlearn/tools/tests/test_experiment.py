@@ -16,6 +16,7 @@ from sklearn.ensemble import GradientBoostingClassifier
 from imblearn.over_sampling import RandomOverSampler, SMOTE, BorderlineSMOTE
 
 from rlearn.tools.experiment import (
+    filter_experiment,
     combine_experiments,
     ImbalancedExperiment,
     GROUP_KEYS,
@@ -38,6 +39,48 @@ EXPERIMENT = ImbalancedExperiment(
     random_state=RND_SEED,
 )
 DATASETS = [('A', (X1, y1)), ('B', (X2, y2)), ('C', (X3, y3))]
+
+
+def test_filter_experiment_raise_error():
+    experiment = clone(EXPERIMENT).fit(DATASETS)
+    with pytest.raises(ValueError):
+        filter_experiment(experiment, oversamplers_names=['random', 'bsmote'])
+    with pytest.raises(ValueError):
+        filter_experiment(experiment, classifiers_names=['kn'])
+    with pytest.raises(ValueError):
+        filter_experiment(experiment, datasets_names=['D', 'A'])
+    with pytest.raises(ValueError):
+        filter_experiment(experiment, datasets_names=['f1'])
+
+
+@pytest.mark.parametrize(
+    'oversamplers_names, classifiers_names, datasets_names, scoring_cols',
+    [(None, None, None, None), (['random'], ['knc'], ['A', 'C'], ['f1'])],
+)
+def test_filter_experiment(
+    oversamplers_names, classifiers_names, datasets_names, scoring_cols
+):
+    """Test filtering of an experiment."""
+    experiment = clone(EXPERIMENT).set_params(scoring=['f1', 'accuracy']).fit(DATASETS)
+    filtered_experiment = filter_experiment(
+        experiment, oversamplers_names, classifiers_names, datasets_names, scoring_cols
+    )
+    if oversamplers_names is not None:
+        assert filtered_experiment.oversamplers_names_ == tuple(oversamplers_names)
+    else:
+        assert filtered_experiment.oversamplers_names_ == experiment.oversamplers_names_
+    if classifiers_names is not None:
+        assert filtered_experiment.classifiers_names_ == tuple(classifiers_names)
+    else:
+        assert filtered_experiment.classifiers_names_ == experiment.classifiers_names_
+    if datasets_names is not None:
+        assert filtered_experiment.datasets_names_ == tuple(datasets_names)
+    else:
+        assert filtered_experiment.datasets_names_ == experiment.datasets_names_
+    if scoring_cols is not None:
+        assert filtered_experiment.scoring_cols_ == scoring_cols
+    else:
+        assert filtered_experiment.scoring_cols_ == experiment.scoring_cols_
 
 
 def test_combine_experiments_different_n_splits():

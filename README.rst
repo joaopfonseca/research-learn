@@ -6,7 +6,7 @@
 
 .. _imbalanced-learn: http://imbalanced-learn.org/en/stable/
 
-|Travis|_ |AppVeyor|_ |Codecov|_ |CircleCI|_ |ReadTheDocs|_ |PythonVersion|_ |Pypi|_ |Conda|_
+|Travis|_ |AppVeyor|_ |Codecov|_ |CircleCI|_ |ReadTheDocs|_ |PythonVersion|_ |Pypi|_ |Conda|_ |Black|_
 
 .. |Travis| image:: https://travis-ci.org/AlgoWit/research-learn.svg?branch=master
 .. _Travis: https://travis-ci.org/AlgoWit/research-learn
@@ -31,6 +31,9 @@
 
 .. |Conda| image:: https://anaconda.org/algowit/research-learn/badges/installer/conda.svg
 .. _Conda: https://conda.anaconda.org/algowit
+
+.. |Black| image:: https://img.shields.io/badge/code%20style-black-000000.svg
+.. _Black: https://github.com/ambv/black
 
 ==============
 research-learn
