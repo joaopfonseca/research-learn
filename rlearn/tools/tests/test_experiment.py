@@ -216,10 +216,13 @@ def test_combine_experiments_multiple():
         .set_params(
             oversamplers=[('bsmote', BorderlineSMOTE(), {'k_neighbors': [2, 5]})],
             classifiers=[('gbc', GradientBoostingClassifier(), {})],
+            scoring=['accuracy', 'f1'],
         )
         .fit(DATASETS[:-1])
     )
-    experiment2 = clone(EXPERIMENT).fit(DATASETS[-1:])
+    experiment2 = (
+        clone(EXPERIMENT).set_params(scoring=['accuracy', 'f1']).fit(DATASETS[-1:])
+    )
     experiment = combine_experiments([experiment1, experiment2])
 
     # Assertions
@@ -227,7 +230,7 @@ def test_combine_experiments_multiple():
     assert set(experiment.datasets_names_) == {'A', 'B', 'C'}
     assert set(experiment.oversamplers_names_) == {'random', 'smote', 'bsmote'}
     assert set(experiment.classifiers_names_) == {'dtc', 'knc', 'gbc'}
-    assert experiment.scoring_cols_ == ['accuracy']
+    assert experiment.scoring_cols_ == ['accuracy', 'f1']
     assert experiment.n_splits == experiment1.n_splits == experiment2.n_splits
     assert experiment.n_runs == experiment1.n_runs == experiment2.n_runs
     assert (

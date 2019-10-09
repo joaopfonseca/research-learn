@@ -8,6 +8,7 @@ machine learning experiments.
 
 from os.path import join
 from pickle import dump
+from collections import Counter
 
 from tqdm import tqdm
 import numpy as np
@@ -137,17 +138,21 @@ def combine_experiments(experiments, name='combined_experiment'):
         results = pd.concat(
             [experiment.results_ for experiment in experiments], axis=1, sort=True
         )
-        if len(set([scoring for scoring, _ in results.columns])) == 1:
+        if results.isna().any().any():
+            scoring_cols = [scoring for scoring, _ in results.columns]
+            if set(Counter(scoring_cols).values()) != set({4}):
+                raise ValueError(
+                    'Experiment with different oversamplers, classifiers or datasets '
+                    'should have the same scoring and vice-versa.'
+                )
+            index = len(results.columns) // 2
             values = np.apply_along_axis(
-                arr=results.values, func1d=lambda row: row[~np.isnan(row)][0:2], axis=1
+                arr=results.values,
+                func1d=lambda row: row[~np.isnan(row)][:index],
+                axis=1,
             )
             results = pd.DataFrame(
-                values, index=results.index, columns=results.columns[0:2]
-            )
-        if results.isna().any().any():
-            raise ValueError(
-                'Experiment with different oversamplers, classifiers or datasets '
-                'should have the same scoring and vice-versa.'
+                values, index=results.index, columns=results.columns[:index]
             )
     except AttributeError:
         raise AttributeError('All experiments should be run before combined.')
