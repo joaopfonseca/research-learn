@@ -14,7 +14,7 @@ from .reporting import (
     apply_friedman_test,
     apply_holms_test,
 )
-from .experiment import combine_experiments, ImbalancedExperiment
+from .experiment import filter_experiment, combine_experiments, ImbalancedExperiment
 
 __all__ = [
     'report_model_search_results',
@@ -25,6 +25,7 @@ __all__ = [
     'calculate_mean_sem_perc_diff_scores',
     'apply_friedman_test',
     'apply_holms_test',
+    'filter_experiment',
     'combine_experiments',
     'ImbalancedExperiment',
 ]
