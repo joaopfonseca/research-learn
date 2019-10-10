@@ -1,10 +1,10 @@
 package:
   name: research-learn
-  version: "0.1.6"
+  version: "0.1.7"
 
 source:
-  url: "https://files.pythonhosted.org/packages/09/8a/2dc32a19bded73340679046e277f4680600c4a9ac20f7b248188cd6c67f5/research-learn-0.1.6.tar.gz"
-  sha256: "9bcc133ee4b8bc297e9793bdbccb46608b852aa61f86c9fb19a3d809238b6207"
+  url: "https://files.pythonhosted.org/packages/ae/55/f92597014293bc0d3305028cd4682bfa2c98e1a70232a602ef0910edc3f8/research-learn-0.1.7.tar.gz"
+  sha256: "0fc5dd12fabde80f4854aa006b13c529bd7e1a8e262dc8d5e41d810340cb3114"
 
 build:
   number: 0
