@@ -147,11 +147,11 @@ def combine_experiments(experiments, name='combined_experiment'):
                 )
             values = np.apply_along_axis(
                 arr=results.values,
-                func1d=lambda row: row[~np.isnan(row)][:len(results.columns) // 2],
+                func1d=lambda row: row[~np.isnan(row)][: len(results.columns) // 2],
                 axis=1,
             )
             results = pd.DataFrame(
-                values, index=results.index, columns=results.columns[:values.shape[1]]
+                values, index=results.index, columns=results.columns[: values.shape[1]]
             )
     except AttributeError:
         raise AttributeError('All experiments should be run before combined.')
