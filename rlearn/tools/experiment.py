@@ -106,13 +106,14 @@ def filter_experiment(
     else:
         mask = mask.values.reshape(-1, 1)
 
-    # Set scoring columns and results
+    # Set attributes
     filtered_experiment.scoring_cols_ = (
         experiment.scoring_cols_ if scoring_cols is None else scoring_cols
     )
     filtered_experiment.results_ = experiment.results_[mask][
         filtered_experiment.scoring_cols_
     ]
+    filtered_experiment._calculate_optimal_results()._calculate_wide_optimal_results()
 
     return filtered_experiment
 
