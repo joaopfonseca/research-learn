@@ -145,14 +145,13 @@ def combine_experiments(experiments, name='combined_experiment'):
                     'Experiment with different oversamplers, classifiers or datasets '
                     'should have the same scoring and vice-versa.'
                 )
-            index = len(results.columns) // 2
             values = np.apply_along_axis(
                 arr=results.values,
-                func1d=lambda row: row[~np.isnan(row)][:index],
+                func1d=lambda row: row[~np.isnan(row)][:len(results.columns) // 2],
                 axis=1,
             )
             results = pd.DataFrame(
-                values, index=results.index, columns=results.columns[:index]
+                values, index=results.index, columns=results.columns[:values.shape[1]]
             )
     except AttributeError:
         raise AttributeError('All experiments should be run before combined.')
