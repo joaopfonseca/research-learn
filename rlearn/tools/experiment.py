@@ -140,7 +140,7 @@ def combine_experiments(experiments, name='combined_experiment'):
         )
         if results.isna().any().any():
             scoring_cols = [scoring for scoring, _ in results.columns]
-            if set(Counter(scoring_cols).values()) != set({4}):
+            if set(Counter(scoring_cols).values()) != {2 * len(experiments)}:
                 raise ValueError(
                     'Experiment with different oversamplers, classifiers or datasets '
                     'should have the same scoring and vice-versa.'
