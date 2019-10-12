@@ -20,38 +20,6 @@ from ..utils import check_datasets
 from ..model_selection import ModelSearchCV
 
 
-def _return_row_ranking(row, sign):
-    """Returns the ranking of values. In case of tie, each ranking value
-    is replaced with its group average."""
-
-    # Calculate ranking
-    ranking = (sign * row).argsort().argsort().astype(float)
-
-    # Break the tie
-    groups = np.unique(row, return_inverse=True)[1]
-    for group_label in np.unique(groups):
-        indices = groups == group_label
-        ranking[indices] = ranking[indices].mean()
-
-    return ranking.size - ranking
-
-
-def calculate_ranking(imbalanced_experiment):
-    """Calculate the ranking of oversamplers for
-    any combination of datasets, classifiers and
-    metrics."""
-    ranking_results = imbalanced_experiment.wide_optimal_.apply(
-        lambda row: _return_row_ranking(
-            row[3:], SCORERS[row[2].replace(' ', '_').lower()]._sign
-        ),
-        axis=1,
-    )
-    ranking = pd.concat(
-        [imbalanced_experiment.wide_optimal_.iloc[:, :3], ranking_results], axis=1
-    )
-    return ranking
-
-
 def report_model_search_results(model_search_cv, sort_results=None):
     """Generate a basic model search report of results."""
 
@@ -156,11 +124,95 @@ def summarize_datasets(datasets):
     return datasets_summary
 
 
-def calculate_mean_sem_ranking(experiment):
+def calculate_optimal(imbalanced_results):
+    """"Calculate optimal results of an imbalanced experiment across
+    hyperparameters for any combination of datasets, overamplers, classifiers
+    and metrics."""
+
+    # Extract scoring columns
+    mean_scoring_cols = [
+        score for score in imbalanced_results.columns if score[1] == 'mean'
+    ]
+    scoring_cols, _ = zip(*mean_scoring_cols)
+
+    # Select mean scores
+    optimal = imbalanced_results[mean_scoring_cols]
+
+    # Calculate maximum score per group key
+    keys = ['Dataset', 'Oversampler', 'Classifier']
+    agg_measures = {score: max for score in optimal.columns}
+    optimal = optimal.groupby(keys).agg(agg_measures).reset_index()
+    optimal.columns = optimal.columns.get_level_values(0)
+
+    # Format as long table
+    optimal = optimal.melt(
+        id_vars=keys, value_vars=scoring_cols, var_name='Metric', value_name='Score'
+    )
+
+    # Cast to categorical columns
+    optimal_cols = keys + ['Metric']
+    for col in optimal_cols:
+        optimal[col] = pd.Categorical(optimal[col], optimal[col].unique())
+
+    # Sort values
+    optimal = optimal.sort_values(optimal_cols)
+
+    return optimal
+
+
+def calculate_wide_optimal(imbalanced_results):
+    """"Calculate optimal results in wide format of an imbalanced experiment across
+    hyperparameters for any combination of datasets, overamplers, classifiers
+    and metrics."""
+
+    # Format as wide table
+    wide_optimal = calculate_optimal(imbalanced_results).pivot_table(
+        index=['Dataset', 'Classifier', 'Metric'],
+        columns=['Oversampler'],
+        values='Score',
+    )
+    wide_optimal.columns = wide_optimal.columns.tolist()
+    wide_optimal.reset_index(inplace=True)
+
+    return wide_optimal
+
+
+def _return_row_ranking(row, sign):
+    """Returns the ranking of values. In case of tie, each ranking value
+    is replaced with its group average."""
+
+    # Calculate ranking
+    ranking = (sign * row).argsort().argsort().astype(float)
+
+    # Break the tie
+    groups = np.unique(row, return_inverse=True)[1]
+    for group_label in np.unique(groups):
+        indices = groups == group_label
+        ranking[indices] = ranking[indices].mean()
+
+    return ranking.size - ranking
+
+
+def calculate_ranking(imbalanced_results):
+    """Calculate the ranking of oversamplers for
+    any combination of datasets, classifiers and
+    metrics."""
+    wide_optimal = calculate_wide_optimal(imbalanced_results)
+    ranking_results = wide_optimal.apply(
+        lambda row: _return_row_ranking(
+            row[3:], SCORERS[row[2].replace(' ', '_').lower()]._sign
+        ),
+        axis=1,
+    )
+    ranking = pd.concat([wide_optimal.iloc[:, :3], ranking_results], axis=1)
+    return ranking
+
+
+def calculate_mean_sem_ranking(imbalanced_results):
     """Calculate the mean and standard error of oversamplers' ranking
     across datasets for any combination of classifiers
     and metrics."""
-    ranking = calculate_ranking(experiment)
+    ranking = calculate_ranking(imbalanced_results)
     mean_ranking = ranking.groupby(['Classifier', 'Metric']).mean().reset_index()
     sem_ranking = (
         ranking.drop(columns='Dataset')
@@ -171,13 +223,12 @@ def calculate_mean_sem_ranking(experiment):
     return mean_ranking, sem_ranking
 
 
-def calculate_mean_sem_scores(experiment):
+def calculate_mean_sem_scores(imbalanced_results):
     """Calculate mean and standard error of scores across datasets."""
-    mean_scores = (
-        experiment.wide_optimal_.groupby(['Classifier', 'Metric']).mean().reset_index()
-    )
+    wide_optimal = calculate_wide_optimal(imbalanced_results)
+    mean_scores = wide_optimal.groupby(['Classifier', 'Metric']).mean().reset_index()
     sem_scores = (
-        experiment.wide_optimal_.drop(columns='Dataset')
+        wide_optimal.drop(columns='Dataset')
         .groupby(['Classifier', 'Metric'])
         .sem()
         .reset_index()
@@ -185,11 +236,15 @@ def calculate_mean_sem_scores(experiment):
     return mean_scores, sem_scores
 
 
-def calculate_mean_sem_perc_diff_scores(experiment, compared_oversamplers=None):
+def calculate_mean_sem_perc_diff_scores(imbalanced_results, compared_oversamplers=None):
     """Calculate mean and standard error scores' percentage difference."""
 
+    # Calculate wide optimal results
+    wide_optimal = calculate_wide_optimal(imbalanced_results)
+    ovrs_names = wide_optimal.columns[3:]
+
     # Calculate percentage difference only for more than one oversampler
-    if len(experiment.oversamplers_names_) < 2:
+    if len(ovrs_names) < 2:
         warnings.warn(
             'More than one oversampler is required to '
             'calculate the mean percentage difference.'
@@ -197,13 +252,11 @@ def calculate_mean_sem_perc_diff_scores(experiment, compared_oversamplers=None):
 
     # Extract oversamplers
     control, test = (
-        compared_oversamplers
-        if compared_oversamplers is not None
-        else experiment.oversamplers_names_[-2:]
+        compared_oversamplers if compared_oversamplers is not None else ovrs_names[-2:]
     )
 
     # Calculate percentage difference
-    scores = experiment.wide_optimal_[experiment.wide_optimal_[control] > 0]
+    scores = wide_optimal[wide_optimal[control] > 0]
     perc_diff_scores = pd.DataFrame(
         (100 * (scores[test] - scores[control]) / scores[control]),
         columns=['Difference'],
@@ -230,20 +283,23 @@ def _extract_pvalue(df):
     return results.pvalue
 
 
-def apply_friedman_test(experiment, alpha=0.05):
+def apply_friedman_test(imbalanced_results, alpha=0.05):
     """Apply the Friedman test across datasets for every
     combination of classifiers and metrics."""
 
+    # Calculate ranking results
+    ranking = calculate_ranking(imbalanced_results)
+    ovrs_names = ranking.columns[3:]
+
     # Apply test for more than two oversamplers
-    if len(experiment.oversamplers_names_) < 3:
+    if len(ovrs_names) < 3:
         warnings.warn(
             'More than two oversamplers are required apply the Friedman test.'
         )
 
     # Calculate p-values
     friedman_test = (
-        calculate_ranking(experiment)
-        .groupby(['Classifier', 'Metric'])
+        ranking.groupby(['Classifier', 'Metric'])
         .apply(_extract_pvalue)
         .reset_index()
         .rename(columns={0: 'p-value'})
@@ -255,29 +311,30 @@ def apply_friedman_test(experiment, alpha=0.05):
     return friedman_test
 
 
-def apply_holms_test(experiment, control_oversampler=None):
+def apply_holms_test(imbalanced_results, control_oversampler=None):
     """Use the Holm's method to adjust the p-values of a paired difference
     t-test for every combination of classifiers and metrics using a control
     oversampler."""
 
-    # Apply test for more than one oversampler
-    if len(experiment.oversamplers_names_) < 2:
-        warnings.warn('More than one oversampler is required to apply the Holms test.')
+    # Calculate wide optimal results
+    wide_optimal = calculate_wide_optimal(imbalanced_results)
+    ovrs_names = list(wide_optimal.columns[3:])
 
-    # Get the oversamplers name
-    oversamplers_names = list(experiment.oversamplers_names_)
+    # Apply test for more than one oversampler
+    if len(ovrs_names) < 2:
+        warnings.warn('More than one oversampler is required to apply the Holms test.')
 
     # Use the last if no control oversampler is provided
     if control_oversampler is None:
-        control_oversampler = oversamplers_names[-1]
-    oversamplers_names.remove(control_oversampler)
+        control_oversampler = ovrs_names[-1]
+    ovrs_names.remove(control_oversampler)
 
     # Define empty p-values table
     pvalues = pd.DataFrame()
 
     # Populate p-values table
-    for name in oversamplers_names:
-        pvalues_pair = experiment.wide_optimal_.groupby(['Classifier', 'Metric'])[
+    for name in ovrs_names:
+        pvalues_pair = wide_optimal.groupby(['Classifier', 'Metric'])[
             [name, control_oversampler]
         ].apply(lambda df: ttest_rel(df[name], df[control_oversampler])[1])
         pvalues_pair = pd.DataFrame(pvalues_pair, columns=[name])
@@ -288,7 +345,7 @@ def apply_holms_test(experiment, control_oversampler=None):
         pvalues.apply(
             lambda col: multipletests(col, method='holm')[1], axis=1
         ).values.tolist(),
-        columns=oversamplers_names,
+        columns=ovrs_names,
     )
     holms_test = holms_test.set_index(pvalues.index).reset_index()
 

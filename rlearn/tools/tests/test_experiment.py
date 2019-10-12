@@ -2,9 +2,6 @@
 Test the imbalanced_analysis module.
 """
 
-from os import remove
-from pickle import load
-
 import pytest
 import pandas as pd
 from sklearn.base import clone
@@ -16,8 +13,8 @@ from sklearn.ensemble import GradientBoostingClassifier
 from imblearn.over_sampling import RandomOverSampler, SMOTE, BorderlineSMOTE
 
 from rlearn.tools.experiment import (
-    filter_experiment,
-    combine_experiments,
+    select_results,
+    combine_results,
     ImbalancedExperiment,
     GROUP_KEYS,
 )
@@ -41,112 +38,79 @@ EXPERIMENT = ImbalancedExperiment(
 DATASETS = [('A', (X1, y1)), ('B', (X2, y2)), ('C', (X3, y3))]
 
 
-def test_filter_experiment_raise_error():
-    experiment = clone(EXPERIMENT).fit(DATASETS)
+def test_select_results_raise_error():
+    """Test raising of error on selection of results."""
+    imbalanced_results = clone(EXPERIMENT).fit(DATASETS).results_
     with pytest.raises(ValueError):
-        filter_experiment(experiment, oversamplers_names=['random', 'bsmote'])
+        select_results(imbalanced_results, oversamplers_names=['random', 'bsmote'])
     with pytest.raises(ValueError):
-        filter_experiment(experiment, classifiers_names=['kn'])
+        select_results(imbalanced_results, classifiers_names=['kn'])
     with pytest.raises(ValueError):
-        filter_experiment(experiment, datasets_names=['D', 'A'])
+        select_results(imbalanced_results, datasets_names=['D', 'A'])
     with pytest.raises(ValueError):
-        filter_experiment(experiment, datasets_names=['f1'])
+        select_results(imbalanced_results, datasets_names=['f1'])
 
 
 @pytest.mark.parametrize(
     'oversamplers_names, classifiers_names, datasets_names, scoring_cols',
     [(None, None, None, None), (['random'], ['knc'], ['A', 'C'], ['f1'])],
 )
-def test_filter_experiment(
+def test_select_results(
     oversamplers_names, classifiers_names, datasets_names, scoring_cols
 ):
-    """Test filtering of an experiment."""
+    """Test selection of results."""
     experiment = clone(EXPERIMENT).set_params(scoring=['f1', 'accuracy']).fit(DATASETS)
-    filtered_experiment = filter_experiment(
-        experiment, oversamplers_names, classifiers_names, datasets_names, scoring_cols
+    selected_results = select_results(
+        experiment.results_,
+        oversamplers_names,
+        classifiers_names,
+        datasets_names,
+        scoring_cols,
     )
+    results = selected_results.reset_index()
     if oversamplers_names is not None:
-        assert filtered_experiment.oversamplers_names_ == tuple(oversamplers_names)
+        assert set(results.Oversampler) == set(oversamplers_names)
     else:
-        assert filtered_experiment.oversamplers_names_ == experiment.oversamplers_names_
+        assert set(results.Oversampler) == set(experiment.oversamplers_names_)
     if classifiers_names is not None:
-        assert filtered_experiment.classifiers_names_ == tuple(classifiers_names)
+        assert set(results.Classifier) == set(classifiers_names)
     else:
-        assert filtered_experiment.classifiers_names_ == experiment.classifiers_names_
+        assert set(results.Classifier) == set(experiment.classifiers_names_)
     if datasets_names is not None:
-        assert filtered_experiment.datasets_names_ == tuple(datasets_names)
+        assert set(results.Dataset) == set(datasets_names)
     else:
-        assert filtered_experiment.datasets_names_ == experiment.datasets_names_
+        assert set(results.Dataset) == set(experiment.datasets_names_)
+    unique_scoring_cols = set([scorer[0] for scorer in selected_results.columns])
     if scoring_cols is not None:
-        assert filtered_experiment.scoring_cols_ == scoring_cols
+        assert unique_scoring_cols == set(scoring_cols)
     else:
-        assert filtered_experiment.scoring_cols_ == experiment.scoring_cols_
+        assert unique_scoring_cols == set(experiment.scoring_cols_)
 
 
-def test_combine_experiments_different_n_splits():
-    """Test the raising error for combination of experiments for different
-    number of splits."""
-    experiment1 = clone(EXPERIMENT).set_params(n_splits=10)
-    experiment2 = clone(EXPERIMENT)
-    with pytest.raises(ValueError):
-        combine_experiments([experiment1, experiment2])
-
-
-def test_combine_experiments_different_n_runs():
-    """Test the raising error for combination of experiments for different
-    number of runs."""
-    experiment1 = clone(EXPERIMENT).set_params(n_runs=3)
-    experiment2 = clone(EXPERIMENT)
-    with pytest.raises(ValueError):
-        combine_experiments([experiment1, experiment2])
-
-
-def test_combine_experiments_different_rnd_seed():
-    """Test the raising error for combination of experiments for
-    different random seed."""
-    experiment1 = clone(EXPERIMENT).set_params(random_state=RND_SEED + 5)
-    experiment2 = clone(EXPERIMENT)
-    with pytest.raises(ValueError):
-        combine_experiments([experiment1, experiment2])
-
-
-def test_combine_experiments_no_fit():
-    """Test the raising error for combination of experiments when they
-    are not fitted."""
-    experiment1 = clone(EXPERIMENT)
-    experiment2 = clone(EXPERIMENT)
-    with pytest.raises(AttributeError):
-        combine_experiments([experiment1, experiment2])
-
-
-def test_combine_experiments_datasets():
-    """Test the combination of experiments for different datasets."""
+def test_combine_results_datasets():
+    """Test the combination of experimental results for different datasets."""
 
     # Clone and fit experiments
     experiment1 = clone(EXPERIMENT).fit(DATASETS[:-1])
     experiment2 = clone(EXPERIMENT).fit(DATASETS[-1:])
-    experiment = combine_experiments([experiment1, experiment2])
+
+    # Extract combined results
+    combined_results = combine_results(experiment1.results_, experiment2.results_)
+    results = combined_results.reset_index()
 
     # Assertions
-    assert experiment.name == 'combined_experiment'
-    assert set(experiment.datasets_names_) == {'A', 'B', 'C'}
-    assert set(experiment.oversamplers_names_) == {'random', 'smote'}
-    assert set(experiment.classifiers_names_) == {'dtc', 'knc'}
-    assert experiment.scoring_cols_ == ['accuracy']
-    assert experiment.n_splits == experiment1.n_splits == experiment2.n_splits
-    assert experiment.n_runs == experiment1.n_runs == experiment2.n_runs
-    assert (
-        experiment.random_state == experiment1.random_state == experiment2.random_state
-    )
+    assert set(results.Dataset) == {'A', 'B', 'C'}
+    assert set(results.Oversampler) == {'random', 'smote'}
+    assert set(results.Classifier) == {'dtc', 'knc'}
+    assert set([scorer[0] for scorer in combined_results.columns]) == set(['accuracy'])
     pd.testing.assert_frame_equal(
-        experiment.results_,
+        combined_results,
         pd.concat([experiment1.results_, experiment2.results_]).sort_index(),
     )
 
 
-def test_combine_experiments_ovs():
-    """Test the combination of experiments for different
-    oversamplers."""
+def test_combine_results_ovrs():
+    """Test the combination of experimental results for different oversamplers."""
 
     # Clone and fit experiments
     experiment1 = (
@@ -157,28 +121,24 @@ def test_combine_experiments_ovs():
         .fit(DATASETS)
     )
     experiment2 = clone(EXPERIMENT).fit(DATASETS)
-    experiment = combine_experiments([experiment1, experiment2])
+
+    # Extract combined results
+    combined_results = combine_results(experiment1.results_, experiment2.results_)
+    results = combined_results.reset_index()
 
     # Assertions
-    assert experiment.name == 'combined_experiment'
-    assert set(experiment.datasets_names_) == {'A', 'B', 'C'}
-    assert set(experiment.oversamplers_names_) == {'random', 'smote', 'bsmote'}
-    assert set(experiment.classifiers_names_) == {'dtc', 'knc'}
-    assert experiment.scoring_cols_ == ['accuracy']
-    assert experiment.n_splits == experiment1.n_splits == experiment2.n_splits
-    assert experiment.n_runs == experiment1.n_runs == experiment2.n_runs
-    assert (
-        experiment.random_state == experiment1.random_state == experiment2.random_state
-    )
+    assert set(results.Dataset) == {'A', 'B', 'C'}
+    assert set(results.Oversampler) == {'random', 'smote', 'bsmote'}
+    assert set(results.Classifier) == {'dtc', 'knc'}
+    assert set([scorer[0] for scorer in combined_results.columns]) == set(['accuracy'])
     pd.testing.assert_frame_equal(
-        experiment.results_,
+        combined_results,
         pd.concat([experiment1.results_, experiment2.results_]).sort_index(),
     )
 
 
-def test_combine_experiments_clf():
-    """Test the combination of experiments for different
-    classifiers."""
+def test_combine_results_clfs():
+    """Test the combination of experimental results for different classifiers."""
 
     # Clone and fit experiments
     experiment1 = (
@@ -187,27 +147,24 @@ def test_combine_experiments_clf():
         .fit(DATASETS)
     )
     experiment2 = clone(EXPERIMENT).fit(DATASETS)
-    experiment = combine_experiments([experiment1, experiment2])
+
+    # Extract combined results
+    combined_results = combine_results(experiment1.results_, experiment2.results_)
+    results = combined_results.reset_index()
 
     # Assertions
-    assert experiment.name == 'combined_experiment'
-    assert set(experiment.datasets_names_) == {'A', 'B', 'C'}
-    assert set(experiment.oversamplers_names_) == {'random', 'smote'}
-    assert set(experiment.classifiers_names_) == {'dtc', 'knc', 'gbc'}
-    assert experiment.scoring_cols_ == ['accuracy']
-    assert experiment.n_splits == experiment1.n_splits == experiment2.n_splits
-    assert experiment.n_runs == experiment1.n_runs == experiment2.n_runs
-    assert (
-        experiment.random_state == experiment1.random_state == experiment2.random_state
-    )
+    assert set(results.Dataset) == {'A', 'B', 'C'}
+    assert set(results.Oversampler) == {'random', 'smote'}
+    assert set(results.Classifier) == {'dtc', 'knc', 'gbc'}
+    assert set([scorer[0] for scorer in combined_results.columns]) == set(['accuracy'])
     pd.testing.assert_frame_equal(
-        experiment.results_,
+        combined_results,
         pd.concat([experiment1.results_, experiment2.results_]).sort_index(),
     )
 
 
-def test_combine_experiments_multiple():
-    """Test the combination of experiments for different
+def test_combine_results_multiple():
+    """Test the combination of experimental results for different
     datasets, oversamplers and classifiers."""
 
     # Clone and fit experiments
@@ -223,27 +180,26 @@ def test_combine_experiments_multiple():
     experiment2 = (
         clone(EXPERIMENT).set_params(scoring=['accuracy', 'f1']).fit(DATASETS[-1:])
     )
-    experiment = combine_experiments([experiment1, experiment2])
+
+    # Extract combined results
+    combined_results = combine_results(experiment1.results_, experiment2.results_)
+    results = combined_results.reset_index()
 
     # Assertions
-    assert experiment.name == 'combined_experiment'
-    assert set(experiment.datasets_names_) == {'A', 'B', 'C'}
-    assert set(experiment.oversamplers_names_) == {'random', 'smote', 'bsmote'}
-    assert set(experiment.classifiers_names_) == {'dtc', 'knc', 'gbc'}
-    assert experiment.scoring_cols_ == ['accuracy', 'f1']
-    assert experiment.n_splits == experiment1.n_splits == experiment2.n_splits
-    assert experiment.n_runs == experiment1.n_runs == experiment2.n_runs
-    assert (
-        experiment.random_state == experiment1.random_state == experiment2.random_state
+    assert set(results.Dataset) == {'A', 'B', 'C'}
+    assert set(results.Oversampler) == {'random', 'smote', 'bsmote'}
+    assert set(results.Classifier) == {'dtc', 'knc', 'gbc'}
+    assert set([scorer[0] for scorer in combined_results.columns]) == set(
+        ['accuracy', 'f1']
     )
     pd.testing.assert_frame_equal(
-        experiment.results_,
+        combined_results,
         pd.concat([experiment1.results_, experiment2.results_]).sort_index(),
     )
 
 
 def test_combine_experiments_wrong_multiple():
-    """Test the combination of experiments for different
+    """Test the combination of experimental results for different
     datasets, oversamplers and classifiers and scoring."""
 
     # Clone and fit experiments
@@ -258,7 +214,7 @@ def test_combine_experiments_wrong_multiple():
     )
     experiment2 = clone(EXPERIMENT).fit(DATASETS[-1:])
     with pytest.raises(ValueError):
-        combine_experiments([experiment1, experiment2])
+        combine_results(experiment1.results_, experiment2.results_)
 
 
 def test_combine_experiments_scoring():
@@ -268,45 +224,24 @@ def test_combine_experiments_scoring():
     # Clone and fit experiments
     experiment1 = clone(EXPERIMENT).set_params(scoring='f1').fit(DATASETS)
     experiment2 = clone(EXPERIMENT).fit(DATASETS)
-    experiment = combine_experiments([experiment1, experiment2])
+
+    # Extract combined results
+    combined_results = combine_results(experiment1.results_, experiment2.results_)
+    results = combined_results.reset_index()
 
     # Assertions
-    assert experiment.name == 'combined_experiment'
-    assert set(experiment.datasets_names_) == {'A', 'B', 'C'}
-    assert set(experiment.oversamplers_names_) == {'random', 'smote'}
-    assert set(experiment.classifiers_names_) == {'dtc', 'knc'}
-    assert experiment.scoring_cols_ == ['accuracy', 'f1']
-    assert experiment.n_splits == experiment1.n_splits == experiment2.n_splits
-    assert experiment.n_runs == experiment1.n_runs == experiment2.n_runs
-    assert (
-        experiment.random_state == experiment1.random_state == experiment2.random_state
+    assert set(results.Dataset) == {'A', 'B', 'C'}
+    assert set(results.Oversampler) == {'random', 'smote'}
+    assert set(results.Classifier) == {'dtc', 'knc'}
+    assert set([scorer[0] for scorer in combined_results.columns]) == set(
+        ['accuracy', 'f1']
     )
     pd.testing.assert_frame_equal(
-        experiment.results_,
+        combined_results,
         pd.concat(
             [experiment1.results_, experiment2.results_[['accuracy']]], axis=1
         ).sort_index(),
     )
-
-
-def test_combine_experiments_fit():
-    """Test the combination of experiments fit method."""
-
-    # Clone and fit experiments
-    experiment1 = clone(EXPERIMENT).fit(DATASETS[:-1])
-    experiment2 = clone(EXPERIMENT).fit(DATASETS[-1:])
-    experiment = combine_experiments([experiment1, experiment2])
-    fitted_experiment = clone(experiment).fit(DATASETS)
-
-    # Assertions
-    attributes = [
-        'datasets_names_',
-        'oversamplers_names_',
-        'classifiers_names_',
-        'scoring_cols_',
-    ]
-    for attr_name in attributes:
-        assert getattr(experiment, attr_name) == getattr(fitted_experiment, attr_name)
 
 
 @pytest.mark.parametrize(
@@ -341,62 +276,8 @@ def test_results():
 
     # Results
     results_cols = experiment.results_.reset_index().columns
-    results_cols = results_cols.get_level_values(0).tolist()[:-2]
+    results_cols = results_cols.get_level_values(0).tolist()[: len(GROUP_KEYS)]
     assert results_cols == GROUP_KEYS
 
     n_params = len(ParameterGrid(experiment.param_grids_))
     assert len(experiment.results_) == len(DATASETS) * n_params // experiment.n_runs
-
-    # Optimal results
-    datasets_names = set(experiment.optimal_.Dataset.unique())
-    assert datasets_names == set(experiment.datasets_names_)
-
-    oversamplers_names = set(experiment.optimal_.Oversampler.unique())
-    assert oversamplers_names == set(experiment.oversamplers_names_)
-
-    classifiers_names = set(experiment.optimal_.Classifier.unique())
-    assert classifiers_names == set(experiment.classifiers_names_)
-
-    optimal_n_rows = len(experiment.optimal_)
-    assert optimal_n_rows == len(datasets_names) * len(oversamplers_names) * len(
-        classifiers_names
-    )
-
-    # Wide optimal results
-    datasets_names = set(experiment.wide_optimal_.Dataset.unique())
-    assert datasets_names == set(experiment.datasets_names_)
-
-    classifiers_names = set(experiment.wide_optimal_.Classifier.unique())
-    assert classifiers_names == set(experiment.classifiers_names_)
-
-    assert set(experiment.oversamplers_names_).issubset(
-        experiment.wide_optimal_.columns
-    )
-    assert len(experiment.wide_optimal_) == len(datasets_names) * len(classifiers_names)
-
-
-def test_dump():
-    """Test the dump method."""
-    # Clone and fit experiment
-    experiment = clone(EXPERIMENT).fit(DATASETS)
-
-    # Dump experiment
-    experiment.dump()
-
-    # Assertions
-    file_name = f'{experiment.name}.pkl'
-    with open(file_name, 'rb') as file:
-        experiment = load(file)
-        attr_names = [
-            attr_name for attr_name in vars(experiment).keys() if attr_name[-1] == '_'
-        ]
-        for attr_name in attr_names:
-            attr1, attr2 = (
-                getattr(experiment, attr_name),
-                getattr(experiment, attr_name),
-            )
-            if isinstance(attr1, pd.core.frame.DataFrame):
-                pd.testing.assert_frame_equal(attr1, attr2)
-
-    # Remove pickled file
-    remove(file_name)

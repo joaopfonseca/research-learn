@@ -6,14 +6,12 @@ machine learning experiments.
 # Author: Georgios Douzas <gdouzas@icloud.com>
 # Licence: MIT
 
-from os.path import join
-from pickle import dump
 from collections import Counter
 
 from tqdm import tqdm
 import numpy as np
 import pandas as pd
-from sklearn.base import BaseEstimator, clone
+from sklearn.base import BaseEstimator
 from sklearn.model_selection import StratifiedKFold
 
 from ..utils import check_datasets, check_oversamplers_classifiers
@@ -22,175 +20,102 @@ from ..model_selection import ModelSearchCV
 GROUP_KEYS = ['Dataset', 'Oversampler', 'Classifier', 'params']
 
 
-def filter_experiment(
-    experiment,
+def select_results(
+    imbalanced_results,
     oversamplers_names=None,
     classifiers_names=None,
     datasets_names=None,
     scoring_cols=None,
 ):
-    """Filter experimental results and return an experiment object."""
+    """Select results of an imbalanced experiment."""
 
     # Check input parameters
-    error_msg = 'Parameter `{}` should be `None` or a subset '
-    'of the experiments corresponding attribute.'
+    error_msg = (
+        'Parameter `{}` should be `None` or a subset '
+        'of the experiments corresponding attribute.'
+    )
     if oversamplers_names is not None:
+        unique_ovrs_names = imbalanced_results.reset_index()['Oversampler'].unique()
         try:
-            if not set(oversamplers_names).issubset(experiment.oversamplers_names_):
-                raise ValueError(error_msg.format(oversamplers_names))
+            if not set(oversamplers_names).issubset(unique_ovrs_names):
+                raise ValueError(error_msg.format('oversamplers_names'))
         except TypeError:
-            raise ValueError(error_msg.format(oversamplers_names))
+            raise ValueError(error_msg.format('oversamplers_names'))
     if classifiers_names is not None:
+        unique_clfs_names = imbalanced_results.reset_index()['Classifier'].unique()
         try:
-            if not set(classifiers_names).issubset(experiment.classifiers_names_):
-                raise ValueError(error_msg.format(classifiers_names))
+            if not set(classifiers_names).issubset(unique_clfs_names):
+                raise ValueError(error_msg.format('classifiers_names'))
         except TypeError:
-            raise ValueError(error_msg.format(classifiers_names))
+            raise ValueError(error_msg.format('classifiers_names'))
     if datasets_names is not None:
+        unique_ds_names = imbalanced_results.reset_index()['Dataset'].unique()
         try:
-            if not set(datasets_names).issubset(experiment.datasets_names_):
-                raise ValueError(error_msg.format(datasets_names))
+            if not set(datasets_names).issubset(unique_ds_names):
+                raise ValueError(error_msg.format('datasets_names'))
         except TypeError:
-            raise ValueError(error_msg.format(datasets_names))
+            raise ValueError(error_msg.format('datasets_names'))
     if scoring_cols is not None:
+        unique_scoring_cols = set([score[0] for score in imbalanced_results.columns])
         try:
-            if not set(scoring_cols).issubset(experiment.scoring_cols_):
-                raise ValueError(error_msg.format(scoring_cols))
+            if not set(scoring_cols).issubset(unique_scoring_cols):
+                raise ValueError(error_msg.format('scoring_cols'))
         except TypeError:
-            raise ValueError(error_msg.format(scoring_cols))
-
-    # Clone experiment
-    filtered_experiment = clone(experiment)
+            raise ValueError(error_msg.format('scoring_cols'))
 
     # Extract results
-    results = experiment.results_.reset_index()
+    results = imbalanced_results.reset_index()
 
-    # Oversamplers
-    if oversamplers_names is not None:
-        mask_ovr = results.Oversampler.isin(oversamplers_names)
-        filtered_experiment.oversamplers = [
-            ovs
-            for ovs in filtered_experiment.oversamplers
-            if ovs[0] in oversamplers_names
-        ]
-        filtered_experiment.oversamplers_names_ = tuple(oversamplers_names)
-    else:
-        mask_ovr = True
-        filtered_experiment.oversamplers_names_ = experiment.oversamplers_names_
-
-    # Classifiers
-    if classifiers_names is not None:
-        mask_clf = results.Classifier.isin(classifiers_names)
-        filtered_experiment.classifiers = [
-            clf
-            for clf in filtered_experiment.classifiers
-            if clf[0] in classifiers_names
-        ]
-        filtered_experiment.classifiers_names_ = tuple(classifiers_names)
-    else:
-        mask_clf = True
-        filtered_experiment.classifiers_names_ = experiment.classifiers_names_
-
-    # Datasets
-    if datasets_names is not None:
-        mask_ds = results.Classifier.isin(datasets_names)
-        filtered_experiment.datasets_names_ = tuple(datasets_names)
-    else:
-        mask_ds = True
-        filtered_experiment.datasets_names_ = experiment.datasets_names_
-
-    # Define boolean mask
+    # Define boolean masks
+    mask_ovr = (
+        results.Oversampler.isin(oversamplers_names)
+        if oversamplers_names is not None
+        else True
+    )
+    mask_clf = (
+        results.Classifier.isin(classifiers_names)
+        if classifiers_names is not None
+        else True
+    )
+    mask_ds = (
+        results.Dataset.isin(datasets_names) if datasets_names is not None else True
+    )
     mask = mask_ovr & mask_clf & mask_ds
     if mask is True:
         mask = np.repeat(True, len(results)).reshape(-1, 1)
     else:
         mask = mask.values.reshape(-1, 1)
+    if scoring_cols is None:
+        scoring_cols = imbalanced_results.columns
 
-    # Set attributes
-    filtered_experiment.scoring_cols_ = (
-        experiment.scoring_cols_ if scoring_cols is None else scoring_cols
-    )
-    filtered_experiment.results_ = experiment.results_[mask][
-        filtered_experiment.scoring_cols_
-    ]
-    filtered_experiment._calculate_optimal_results()._calculate_wide_optimal_results()
+    # Filter results
+    filtered_results = imbalanced_results[mask][scoring_cols]
 
-    return filtered_experiment
+    return filtered_results
 
 
-def combine_experiments(experiments, name='combined_experiment'):
+def combine_results(*imbalanced_results):
     """Combines the results of multiple experiments into a single one."""
 
-    # Check compatibility
-    attributes = ['n_splits', 'n_runs', 'random_state']
-    for attr_name in attributes:
-        values = []
-        for experiment in experiments:
-            values.append(getattr(experiment, attr_name))
-        values = set(values)
-        if len(values) > 1:
-            raise ValueError(
-                f'Experiments can not be combined. Parameter `{attr_name}` '
-                f'should be unique across different experiments.'
-            )
-
     # Extract results
-    try:
-        results = pd.concat(
-            [experiment.results_ for experiment in experiments], axis=1, sort=True
+    results = pd.concat(imbalanced_results, axis=1, sort=True)
+    if results.isna().any().any():
+        scoring_cols = [scoring for scoring, _ in results.columns]
+        if set(Counter(scoring_cols).values()) != {2 * len(imbalanced_results)}:
+            raise ValueError(
+                'Experiment with different oversamplers, classifiers or datasets '
+                'should have the same scoring and vice-versa.'
+            )
+        values = np.apply_along_axis(
+            arr=results.values,
+            func1d=lambda row: row[~np.isnan(row)][: len(results.columns) // 2],
+            axis=1,
         )
-        if results.isna().any().any():
-            scoring_cols = [scoring for scoring, _ in results.columns]
-            if set(Counter(scoring_cols).values()) != {2 * len(experiments)}:
-                raise ValueError(
-                    'Experiment with different oversamplers, classifiers or datasets '
-                    'should have the same scoring and vice-versa.'
-                )
-            values = np.apply_along_axis(
-                arr=results.values,
-                func1d=lambda row: row[~np.isnan(row)][: len(results.columns) // 2],
-                axis=1,
-            )
-            results = pd.DataFrame(
-                values, index=results.index, columns=results.columns[: values.shape[1]]
-            )
-    except AttributeError:
-        raise AttributeError('All experiments should be run before combined.')
+        results = pd.DataFrame(
+            values, index=results.index, columns=results.columns[: values.shape[1]]
+        )
 
-    # Generate experiment parameters
-    oversamplers, classifiers, scoring = [], [], set()
-    for experiment in experiments:
-        scoring = scoring.union(experiment.scoring_cols_)
-        for ovs in experiment.oversamplers or not oversamplers:
-            ovs_names = [name for name, *_ in oversamplers]
-            if ovs[0] not in ovs_names:
-                oversamplers.append(ovs)
-        for clf in experiment.classifiers or not classifiers:
-            clf_names = [name for name, *_ in classifiers]
-            if clf[0] not in clf_names:
-                classifiers.append(clf)
-    scoring = sorted(scoring)
-
-    # Combine results
-    combined_experiment = ImbalancedExperiment(
-        name,
-        oversamplers,
-        classifiers,
-        scoring,
-        experiments[0].n_splits,
-        experiments[0].n_runs,
-        experiments[0].random_state,
-    )
-    combined_experiment.datasets_names_ = tuple(
-        np.unique(results.index.get_level_values('Dataset'))
-    )
-    combined_experiment._initialize()
-    combined_experiment.results_ = results
-
-    # Create attributes
-    combined_experiment._calculate_optimal_results()._calculate_wide_optimal_results()
-
-    return combined_experiment
+    return results
 
 
 class ImbalancedExperiment(BaseEstimator):
@@ -256,85 +181,6 @@ class ImbalancedExperiment(BaseEstimator):
                 else ['r2']
             )
 
-    def _calculate_results(self, results):
-        """"Calculate aggregated results across runs."""
-        results['params'] = results['params'].apply(
-            lambda param_grid: str(
-                {
-                    param: val
-                    for param, val in param_grid.items()
-                    if 'random_state' not in param
-                }
-            )
-        )
-        scoring_mapping = {
-            scorer_name: [np.mean, np.std] for scorer_name in self.scoring_cols_
-        }
-        self.results_ = results.groupby(GROUP_KEYS).agg(scoring_mapping)
-        return self
-
-    def _calculate_optimal_results(self):
-        """"Calculate optimal results across hyperparameters for any
-        combination of datasets, overamplers, classifiers and metrics."""
-
-        # Select mean scores
-        optimal = self.results_[
-            [(score, 'mean') for score in self.scoring_cols_]
-        ].reset_index()
-
-        # Flatten columns
-        optimal.columns = optimal.columns.get_level_values(0)
-
-        # Calculate maximum score per gorup key
-        agg_measures = {score: max for score in self.scoring_cols_}
-        optimal = optimal.groupby(GROUP_KEYS[:-1], as_index=False).agg(agg_measures)
-
-        # Format as long table
-        optimal = optimal.melt(
-            id_vars=GROUP_KEYS[:-1],
-            value_vars=self.scoring_cols_,
-            var_name='Metric',
-            value_name='Score',
-        )
-
-        # Cast to categorical columns
-        optimal_cols = GROUP_KEYS[:-1] + ['Metric']
-        names = [
-            self.datasets_names_,
-            self.oversamplers_names_,
-            self.classifiers_names_,
-            self.scoring_cols_,
-        ]
-        for col, name in zip(optimal_cols, names):
-            optimal[col] = pd.Categorical(optimal[col], name)
-
-        # Sort values
-        self.optimal_ = optimal.sort_values(optimal_cols).reset_index(drop=True)
-
-        return self
-
-    def _calculate_wide_optimal_results(self):
-        """Calculate optimal results in wide format."""
-
-        # Format as wide table
-        wide_optimal = self.optimal_.pivot_table(
-            index=['Dataset', 'Classifier', 'Metric'],
-            columns=['Oversampler'],
-            values='Score',
-        )
-        wide_optimal.columns = wide_optimal.columns.tolist()
-        wide_optimal.reset_index(inplace=True)
-
-        # Cast column
-        wide_optimal['Metric'] = pd.Categorical(
-            wide_optimal['Metric'],
-            categories=self.scoring if isinstance(self.scoring, list) else None,
-        )
-
-        self.wide_optimal_ = wide_optimal
-
-        return self
-
     def fit(self, datasets):
         """Fit experiment."""
 
@@ -374,17 +220,20 @@ class ImbalancedExperiment(BaseEstimator):
             results.models.values.tolist()
         )
 
-        # Drop models columns
+        # Calculate results
         results.drop(columns='models', inplace=True)
-
-        # Calculate results in various formats
-        self._calculate_results(
-            results
-        )._calculate_optimal_results()._calculate_wide_optimal_results()
+        results['params'] = results['params'].apply(
+            lambda param_grid: str(
+                {
+                    param: val
+                    for param, val in param_grid.items()
+                    if 'random_state' not in param
+                }
+            )
+        )
+        scoring_mapping = {
+            scorer_name: [np.mean, np.std] for scorer_name in self.scoring_cols_
+        }
+        self.results_ = results.groupby(GROUP_KEYS).agg(scoring_mapping)
 
         return self
-
-    def dump(self, path='.'):
-        """Dump the experiment object."""
-        with open(join(path, f'{self.name}.pkl'), 'wb') as file:
-            dump(self, file)

@@ -1,5 +1,5 @@
 """
-The :mod:`sklearnext.utils.validation` includes utilities
+The :mod:`rlearn.utils.validation` includes utilities
 for input validation.
 """
 

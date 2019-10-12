@@ -1,5 +1,5 @@
 """
-The :mod:`sklearnext.model_selection` module includes the
+The :mod:`rlearn.model_selection` module includes the
 model and parameter search methods.
 """
 

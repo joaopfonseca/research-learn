@@ -15,6 +15,8 @@ from rlearn.tools import (
     ImbalancedExperiment,
     report_model_search_results,
     summarize_datasets,
+    calculate_optimal,
+    calculate_wide_optimal,
     calculate_ranking,
     calculate_mean_sem_ranking,
     calculate_mean_sem_scores,
@@ -22,8 +24,9 @@ from rlearn.tools import (
     apply_friedman_test,
     apply_holms_test,
 )
-from rlearn.tools.tests import DATASETS, CLASSIFIERS, OVERSAMPLERS
 from rlearn.model_selection import ModelSearchCV
+from rlearn.tools.tests import DATASETS, CLASSIFIERS, OVERSAMPLERS
+
 
 EXPERIMENT = ImbalancedExperiment(
     'test_experiment',
@@ -105,33 +108,65 @@ def test_datasets_summary():
     )
 
 
+def test_optimal_results():
+    """Test the optimal results of experiment."""
+
+    # Calculate optimal results
+    optimal = calculate_optimal(EXPERIMENT.results_)
+
+    # Assertions
+    ds_names = optimal.Dataset.unique()
+    ovrs_names = optimal.Oversampler.unique()
+    clfs_names = optimal.Classifier.unique()
+    assert set(ds_names) == set(EXPERIMENT.datasets_names_)
+    assert set(ovrs_names) == set(EXPERIMENT.oversamplers_names_)
+    assert set(clfs_names) == set(EXPERIMENT.classifiers_names_)
+    assert len(optimal) == len(ds_names) * len(ovrs_names) * len(clfs_names)
+
+
+def test_wide_optimal_results():
+    """Test the optimal results of experiment."""
+
+    # Calculate wide optimal results
+    wide_optimal = calculate_wide_optimal(EXPERIMENT.results_)
+
+    # Assertions
+    ds_names = wide_optimal.Dataset.unique()
+    ovrs_names = set(wide_optimal.columns[3:])
+    clfs_names = wide_optimal.Classifier.unique()
+    assert set(ds_names) == set(EXPERIMENT.datasets_names_)
+    assert set(ovrs_names) == set(EXPERIMENT.oversamplers_names_)
+    assert set(clfs_names) == set(EXPERIMENT.classifiers_names_)
+    assert len(wide_optimal) == len(ds_names) * len(clfs_names)
+
+
 def test_ranking_results():
     """Test the ranking results of experiment."""
-    ranking = calculate_ranking(EXPERIMENT)
+    ranking = calculate_ranking(EXPERIMENT.results_)
     assert set(ranking.Dataset.unique()) == set(EXPERIMENT.datasets_names_)
     assert set(ranking.Classifier.unique()) == set(EXPERIMENT.classifiers_names_)
-    assert set(EXPERIMENT.oversamplers_names_).issubset(ranking.columns)
+    assert set(ranking.columns[3:]) == set(EXPERIMENT.oversamplers_names_)
     assert len(ranking) == len(DATASETS) * len(CLASSIFIERS)
 
 
 def test_mean_sem_ranking():
     """Test the mean ranking results of experiment."""
-    mean_ranking, sem_ranking = calculate_mean_sem_ranking(EXPERIMENT)
+    mean_ranking, sem_ranking = calculate_mean_sem_ranking(EXPERIMENT.results_)
     assert set(mean_ranking.Classifier.unique()) == set(EXPERIMENT.classifiers_names_)
     assert set(sem_ranking.Classifier.unique()) == set(EXPERIMENT.classifiers_names_)
-    assert set(EXPERIMENT.oversamplers_names_).issubset(mean_ranking.columns)
-    assert set(EXPERIMENT.oversamplers_names_).issubset(sem_ranking.columns)
+    assert set(mean_ranking.columns[2:]) == set(EXPERIMENT.oversamplers_names_)
+    assert set(sem_ranking.columns[2:]) == set(EXPERIMENT.oversamplers_names_)
     assert len(mean_ranking) == len(CLASSIFIERS)
     assert len(sem_ranking) == len(CLASSIFIERS)
 
 
 def test_mean_sem_scores():
     """Test the mean scores results of experiment."""
-    mean_scores, sem_scores = calculate_mean_sem_scores(EXPERIMENT)
+    mean_scores, sem_scores = calculate_mean_sem_scores(EXPERIMENT.results_)
     assert set(mean_scores.Classifier.unique()) == set(EXPERIMENT.classifiers_names_)
     assert set(sem_scores.Classifier.unique()) == set(EXPERIMENT.classifiers_names_)
-    assert set(EXPERIMENT.oversamplers_names_).issubset(mean_scores.columns)
-    assert set(EXPERIMENT.oversamplers_names_).issubset(sem_scores.columns)
+    assert set(mean_scores.columns[2:]) == set(EXPERIMENT.oversamplers_names_)
+    assert set(sem_scores.columns[2:]) == set(EXPERIMENT.oversamplers_names_)
     assert len(mean_scores) == len(CLASSIFIERS)
     assert len(sem_scores) == len(CLASSIFIERS)
 
@@ -139,7 +174,7 @@ def test_mean_sem_scores():
 def test_mean_sem_perc_diff_scores():
     """Test the mean percentage difference of scores."""
     mean_perc_diff_scores, sem_perc_diff_scores = calculate_mean_sem_perc_diff_scores(
-        EXPERIMENT, compared_oversamplers=None
+        EXPERIMENT.results_, compared_oversamplers=None
     )
     assert set(mean_perc_diff_scores.Classifier.unique()) == set(
         EXPERIMENT.classifiers_names_
@@ -159,13 +194,13 @@ def test_mean_sem_perc_diff_scores():
 
 def test_friedman_test():
     """Test the results of friedman test."""
-    friedman_test = apply_friedman_test(EXPERIMENT, alpha=0.05)
+    friedman_test = apply_friedman_test(EXPERIMENT.results_, alpha=0.05)
     assert set(friedman_test.Classifier.unique()) == set(EXPERIMENT.classifiers_names_)
     assert len(friedman_test) == len(CLASSIFIERS)
 
 
 def test_holms_test():
     """Test the results of holms test."""
-    holms_test = apply_holms_test(EXPERIMENT, control_oversampler=None)
+    holms_test = apply_holms_test(EXPERIMENT.results_, control_oversampler=None)
     assert set(holms_test.Classifier.unique()) == set(EXPERIMENT.classifiers_names_)
     assert len(holms_test) == len(CLASSIFIERS)
