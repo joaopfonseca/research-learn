@@ -24,7 +24,6 @@ X1, y1 = make_classification(random_state=RND_SEED, n_features=10, n_samples=50)
 X2, y2 = make_classification(random_state=RND_SEED + 2, n_features=20, n_samples=50)
 X3, y3 = make_classification(random_state=RND_SEED + 5, n_features=5, n_samples=50)
 EXPERIMENT = ImbalancedExperiment(
-    'test_experiment',
     oversamplers=[
         ('random', RandomOverSampler(), {}),
         ('smote', SMOTE(), {'k_neighbors': [2, 3, 4]}),

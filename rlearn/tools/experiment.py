@@ -123,7 +123,6 @@ class ImbalancedExperiment(BaseEstimator):
 
     def __init__(
         self,
-        name,
         oversamplers,
         classifiers,
         scoring=None,
@@ -133,7 +132,6 @@ class ImbalancedExperiment(BaseEstimator):
         n_jobs=-1,
         verbose=0,
     ):
-        self.name = name
         self.oversamplers = oversamplers
         self.classifiers = classifiers
         self.scoring = scoring

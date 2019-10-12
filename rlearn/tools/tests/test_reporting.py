@@ -29,7 +29,6 @@ from rlearn.tools.tests import DATASETS, CLASSIFIERS, OVERSAMPLERS
 
 
 EXPERIMENT = ImbalancedExperiment(
-    'test_experiment',
     OVERSAMPLERS,
     CLASSIFIERS,
     scoring=None,
