@@ -27,14 +27,8 @@ from rlearn.tools import (
 from rlearn.model_selection import ModelSearchCV
 from rlearn.tools.tests import DATASETS, CLASSIFIERS, OVERSAMPLERS
 
-
 EXPERIMENT = ImbalancedExperiment(
-    OVERSAMPLERS,
-    CLASSIFIERS,
-    scoring=None,
-    n_splits=3,
-    n_runs=3,
-    random_state=0,
+    OVERSAMPLERS, CLASSIFIERS, scoring=None, n_splits=3, n_runs=3, random_state=0
 ).fit(DATASETS)
 
 
